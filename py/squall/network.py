@@ -67,7 +67,7 @@ class StreamAPI(type):
             cls._ci[handle][5] = value
 
     def _fill_in_buff(cls, socket, timeout, chunk_size, buffer_size):
-        revents = yield from coroutine.wait(socket, READ, next(timeout))
+        revents = yield from coroutine.wait(socket.fileno(), READ, next(timeout))
         if revents & READ:
             block_size = buffer_size - len(cls._in_buffer)
             block_size = block_size if block_size < chunk_size else chunk_size
@@ -141,7 +141,7 @@ class StreamAPI(type):
         can_sent = can_sent if len(data) > can_sent else len(data)
         cls._out_buffer += data[:can_sent]
         while len(cls._out_buffer):
-            revents = yield from coroutine.wait(cls._socket, WRITE, next(timeout))
+            revents = yield from coroutine.wait(cls._socket.fileno(), WRITE, next(timeout))
             if revents & WRITE:
                 block_size = chunk_size if chunk_size < len(cls._out_buffer) else len(cls._out_buffer)
                 sent = cls._socket.send(cls._out_buffer[:block_size])
