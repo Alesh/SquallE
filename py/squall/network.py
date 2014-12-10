@@ -127,7 +127,7 @@ class StreamAPI(type):
             cls._in_buffer = b''
         return data
 
-    def readLine(cls, max_number=None, timeout=0):
+    def readLine(cls, max_number=None, timeout=None):
         """Read line bytes from current stream terminated with LF."""
         return (yield from cls.readUntil(b'\n', max_number, timeout))
 
@@ -145,10 +145,22 @@ class StreamAPI(type):
             if revents & WRITE:
                 block_size = chunk_size if chunk_size < len(cls._out_buffer) else len(cls._out_buffer)
                 sent = cls._socket.send(cls._out_buffer[:block_size])
-                cls._out_buffer = cls._out_buffer[block_size:]
+                cls._out_buffer = cls._out_buffer[sent:]
             elif revents & TIMEOUT:
                 raise OSError(errno.ETIMEDOUT, "Connection timed out.")
         return can_sent
+
+    def _init_instance(cls, handle, client_socket, chunk_size, buffer_size):
+        chunk_size = chunk_size or 4*1024
+        chunk_size = chunk_size if chunk_size > 1024 else 1024
+        chunk_size = chunk_size if chunk_size < 64*1024 else 64*1024
+        buffer_size = buffer_size or 256*1024
+        buffer_size = buffer_size if buffer_size > 1024*8 else 1024*8
+        buffer_size = buffer_size if buffer_size < chunk_size*8 else chunk_size*8
+        cls._ci[handle] = [client_socket, b'', b'', chunk_size, buffer_size, False]
+
+    def _release_instance(cls, handle):
+        del cls._ci[handle]
 
 
 class stream(metaclass=StreamAPI):
@@ -156,15 +168,8 @@ class stream(metaclass=StreamAPI):
     def __init__(self, run=None, chunk_size=None, buffer_size=None):
         self._run = run
         self._obj = self._coro = None
-
-        chunk_size = chunk_size or 4096
-        chunk_size = chunk_size if chunk_size > 1024 else 1024
-        self.chunk_size = chunk_size if chunk_size < 64*1024 else 64*1024
-
-        buffer_size = buffer_size or 262144
-        buffer_size = buffer_size if buffer_size > 1024*8 else 1024*8
-        self.buffer_size = buffer_size if buffer_size < chunk_size*8 else chunk_size*8
-
+        self.chunk_size = chunk_size
+        self.buffer_size = buffer_size
         super(stream, self).__init__()
 
     def __get__(self, obj, cls):
@@ -178,13 +183,16 @@ class stream(metaclass=StreamAPI):
                 def wrapper(client_socket, address):
                     handle = coroutine.current
                     client_socket.setblocking(False)
-                    stream._ci[handle] = [client_socket, b'', b'', self.chunk_size, self.buffer_size, False]
+                    stream._init_instance(handle, client_socket, self.chunk_size, self.buffer_size)
                     log.debug("Accepted connection from: {}.".format(address))
                     try:
                         yield from run(address)
                     finally:
-                        del stream._ci[handle]
-                        client_socket.shutdown(socket.SHUT_RDWR)
+                        stream._release_instance(handle)
+                        try:
+                            client_socket.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
                         client_socket.close()
                         log.debug("Closed connection from: {}.".format(address))
                 self._coro = coroutine(wrapper)
