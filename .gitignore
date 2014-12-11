@@ -1,4 +1,10 @@
 .st3
+.dub
 .pure
 __pycache__
 *.egg-info
+build
+*.a
+*.so
+*.c
+dub.selections.json

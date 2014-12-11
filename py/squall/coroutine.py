@@ -1,9 +1,15 @@
 """`squall.coroutine`"""
 import functools
 from collections import deque
-from squall.utilites import log
-from squall.dispatcher import dispatcher
-from squall.dispatcher import READ, WRITE, TIMEOUT, IDLE
+from squall.utilites import log, DispatcherSetupError
+
+try:
+    from squall import dispatcher
+    from squall.dispatcher import READ, WRITE, TIMEOUT, IDLE, ERROR, CLEANUP
+except ImportError:
+    log.warning("Cannot load dispatcher, used failback version.")
+    from squall.failback.dispatcher import dispatcher
+    from squall.failback.dispatcher import READ, WRITE, TIMEOUT, IDLE, ERROR, CLEANUP
 
 
 class CoroAPI(type):
@@ -30,26 +36,21 @@ class CoroAPI(type):
 
     def sleep(cls, timeout=None):
         """Pauses current coroutine until timeout is not expired."""
-        # callback resume coroutine and sent to it revents
-        def resume(handle, revents):
-            coroutine.switch(handle, revents)
         assert cls.current is not None, "Can called only from coroutine."
-        callback = functools.partial(resume, coroutine.current)
         timeout = timeout or 0
         if timeout > 0:
-            dispatcher.watch(callback, timeout=timeout)
+            if not dispatcher.watch(cls.current, cls._resume, timeout=timeout):
+                raise DispatcherSetupError
         else:
-            dispatcher.call(callback)
+            if not dispatcher.call(cls.current, cls._resume):
+                raise DispatcherSetupError
         return (yield)
 
     def wait(cls, fd, eventmask, timeout=None):
         """Pauses current coroutine until event is not occurred."""
-        # callback resume coroutine and sent to it revents
-        def resume(handle, revents):
-            coroutine.switch(handle, revents)
         assert cls.current is not None, "Can called only from coroutine."
-        callback = functools.partial(resume, coroutine.current)
-        dispatcher.watch(callback, fd, eventmask, timeout or 0)
+        if not dispatcher.watch(cls.current, cls._resume, fd, eventmask, timeout or 0):
+            raise DispatcherSetupError
         return (yield)
 
     def switch(cls, handle, value):
@@ -62,6 +63,20 @@ class CoroAPI(type):
         with context(handle) as corogen:
             corogen.throw(exception)
 
+    def _start(cls, handle, revents):
+        """Callback starts coroutine."""
+        assert revents == IDLE
+        with context(handle) as corogen:
+            log.debug("Coroutine with handle: {:X} has started.".format(handle))
+            next(corogen)
+
+    def _resume(cls, handle, revents):
+        """Callback resumes coroutine and sent to it revents."""
+        if revents & CLEANUP:
+            coroutine.throw(handle, GeneratorExit())
+        else:
+            coroutine.switch(handle, revents)
+
 
 class coroutine(metaclass=CoroAPI):
     """Makes coroutine from a function or method."""
@@ -73,17 +88,11 @@ class coroutine(metaclass=CoroAPI):
         self._obj = obj
 
     def __call__(self, *args, **kwargs):
-        # calback starts coroutine
-        def start(handle, revents):
-            assert revents == IDLE
-            with context(handle) as corogen:
-                log.debug("Coroutine with handle: {:X} has started.".format(handle))
-                next(corogen)
         run = functools.partial(self._run, self._obj) if self._obj else self._run
         corogen = run(*args, **kwargs)
         handle = id(corogen)
         coroutine._all[handle] = corogen
-        dispatcher.call(functools.partial(start, handle))
+        dispatcher.call(handle, coroutine._start)
         return handle
 
 
@@ -93,7 +102,7 @@ class context(object):
         if handle in coroutine._all:
             self.corogen = coroutine._all[handle]
         else:
-            raise ValueError("Cannot found coroutine for given handle.")
+            raise ValueError("Cannot found coroutine for given handle: {}.".format(handle))
 
     def __enter__(self):
         coroutine._current.appendleft(self.corogen)
@@ -109,7 +118,8 @@ class context(object):
                 try:
                     raise value.with_traceback(traceback)
                 except:
-                    log.exception("Coroutine with handle: {:X} has terminated because uncaught exception:".format(handle))
+                    log.exception("Coroutine with handle: {:X} has terminated"
+                                  " because uncaught exception:".format(handle))
             del coroutine._all[handle]
         return True
 

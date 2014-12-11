@@ -1,0 +1,15 @@
+{
+	"name": "Squall",
+	"sourcePaths": [ "d" ],
+	"configurations": [
+		{
+			"name": "lib",
+			"targetType": "library",
+			"dflags": [ "-fPIC" ],
+			"sourceFiles": [ "d/lib.d" ],
+		},
+	],
+	"dependencies": {
+		"libev": ">=4.0.0+4.04",
+    }
+}

@@ -45,19 +45,21 @@ class Dispatcher(metaclass=Singleton):
         self._pending = dict()
         self._timeouts = list()
 
-    def call(self, callback, not_once=False):
+    def call(self, handle, callback):
         """Setups the next idle callback."""
-        self._idles.append(callback)
+        return self._idles.append(functools.partial(callback, handle)) or True
 
-    def watch(self, callback, fd=None, eventmask=None, timeout=None):
+    def watch(self, handle, callback, fd=None, eventmask=None, timeout=None):
         """Setups the event watcher."""
         assert (fd is not None and eventmask is not None) or timeout is not None
+        callback = functools.partial(callback, handle)
         deadline = now() + timeout if timeout > 0 else None
         if deadline is not None:
             heappush(self._timeouts, (deadline, fd, callback))
         if fd is not None:
             self._poll.register(fd, eventmask)
             self._pending[fd] = (callback, deadline)
+        return deadline is not None or fd is not None
 
     def loop(self):
         """Performs one event loop."""
@@ -106,6 +108,9 @@ class Dispatcher(metaclass=Singleton):
     def stop(self):
         """Stops the event loop."""
         self._started = False
+
+    def setup_logging(self, level):
+        """Setups logging system."""
 
 
 # Default dispatcher

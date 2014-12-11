@@ -7,6 +7,18 @@ log = logging.Logger("squall")
 log.setLevel(logging.WARNING)
 
 
+class CoroutineError(Exception):
+    """Base error"""
+
+
+class DispatcherSetupError(CoroutineError):
+    """Cannot setup dispatcher task."""
+    def __init__(self, message=None):
+        super(DispatcherSetupError, self).__init__(message or self.__doc__)
+
+
+
+
 class Singleton(type):
     """Singleton"""
     def __call__(cls, *args, **kwargs):
@@ -15,7 +27,7 @@ class Singleton(type):
         return cls._instance
 
 
-def configLogger(level=None, handler=None, formater=None):
+def config_logger(level=None, handler=None, formater=None):
     """Configs module logger with given parameters."""
     level = level or logging.DEBUG
     handler = handler or logging.StreamHandler()

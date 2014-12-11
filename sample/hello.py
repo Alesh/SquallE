@@ -1,5 +1,7 @@
+import logging
 import squall
 from squall import coroutine
+squall.configLogger(logging.DEBUG)
 
 
 @coroutine
@@ -17,9 +19,6 @@ def terminate(timeout):
 
 if __name__ == '__main__':
 
-    import logging
-    from squall.utilites import configLogger
-    configLogger(logging.WARNING)
 
     hello("Ivan", 2.0)
     hello("Alesh", 3.0)

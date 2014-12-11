@@ -1,6 +1,7 @@
 import squall
-from squall import coroutine, stream, streamServer
-from squall.utilites import log, configLogger
+import logging
+from squall import coroutine, log, configLogger
+from squall.failback.network import stream, streamServer
 
 
 @stream
@@ -25,7 +26,6 @@ def close_by(timeout):
     squall.stop()
 
 if __name__ == '__main__':
-    import logging
     configLogger(logging.INFO)
     streamServer(echo, ("127.0.0.1", 2007), 64)
     close_by(60)
